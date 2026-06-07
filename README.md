@@ -65,6 +65,7 @@ npm start
 - View Channels
 - Send Messages
 - Read Message History
+- Embed Links
 - Connect
 - Speak
 

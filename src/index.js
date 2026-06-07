@@ -4,13 +4,14 @@ import {
   ButtonBuilder,
   ButtonStyle,
   Client,
+  EmbedBuilder,
   GatewayIntentBits,
   MessageFlags,
 } from 'discord.js';
 import { MusicManager, UserFacingError } from './music.js';
 
 const token = process.env.DISCORD_TOKEN;
-const INSULT_GIF_URL = 'https://tenor.com/view/jojos-reference-menacing-swap-card-anime-gif-17506000';
+const INSULT_GIF_URL = 'https://media.tenor.com/EyeGPrw4TS4AAAAC/jojos-reference.gif';
 const INSULT_TRIGGER_PATTERN = /(^|[^\p{L}\p{N}_])пошел\s+нахуй($|[^\p{L}\p{N}_])/iu;
 
 if (!token) {
@@ -66,7 +67,8 @@ client.on('messageCreate', async (message) => {
 
   await message.channel
     .send({
-      content: `<@${message.author.id}> ${INSULT_GIF_URL}`,
+      content: `<@${message.author.id}>`,
+      embeds: [new EmbedBuilder().setImage(INSULT_GIF_URL)],
       allowedMentions: { users: [message.author.id] },
     })
     .catch((error) => {
