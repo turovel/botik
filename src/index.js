@@ -22,7 +22,7 @@ const client = new Client({
 
 const music = new MusicManager(client);
 const searchSessions = new Map();
-const SEARCH_RESULT_LIMIT = 10;
+const SEARCH_RESULT_LIMIT = 5;
 const SEARCH_SESSION_TTL_MS = 10 * 60 * 1000;
 
 client.once('clientReady', () => {

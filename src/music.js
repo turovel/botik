@@ -27,6 +27,7 @@ const IDLE_LEAVE_MS = 120_000;
 const MAX_QUEUE_DISPLAY = 10;
 const SEARCH_CANDIDATES_TO_VALIDATE = 5;
 const YT_DLP_METADATA_TIMEOUT_MS = 45_000;
+const YT_DLP_PLAYLIST_TIMEOUT_MS = 120_000;
 let youtubeClientPromise;
 
 export class MusicManager {
@@ -38,34 +39,51 @@ export class MusicManager {
   async enqueue(interaction, query) {
     const voiceChannel = await this.getTargetVoiceChannel(interaction);
     assertVoiceChannel(voiceChannel);
-    const track = await resolveTrack(query, interaction.user);
-    return this.enqueueTrack(interaction, track, voiceChannel);
+    const tracks = await resolveTracks(query, interaction.user);
+    return this.enqueueTracks(interaction, tracks, voiceChannel);
   }
 
   async enqueueVideoId(interaction, videoId, fallback = {}) {
     const voiceChannel = await this.getTargetVoiceChannel(interaction);
     assertVoiceChannel(voiceChannel);
     const track = await createTrackFromVideoId(videoId, interaction.user, fallback);
-    return this.enqueueTrack(interaction, track, voiceChannel);
+    return this.enqueueTracks(interaction, [track], voiceChannel);
   }
 
   async search(query, limit = MAX_QUEUE_DISPLAY) {
     return searchYoutubeVideos(query, limit);
   }
 
-  async enqueueTrack(interaction, track, voiceChannel) {
+  async enqueueTracks(interaction, tracks, voiceChannel) {
+    if (tracks.length === 0) {
+      throw new UserFacingError('Не нашел треки для добавления в очередь.');
+    }
+
     const queue = this.getOrCreateQueue(interaction.guild, interaction.channel);
 
     await this.connect(queue, voiceChannel);
 
-    queue.tracks.push(track);
+    const firstTrack = tracks[0];
+    const startPosition = queue.tracks.length + 1;
+    const shouldStartNow = queue.player.state.status === AudioPlayerStatus.Idle && !queue.current;
 
-    if (queue.player.state.status === AudioPlayerStatus.Idle && !queue.current) {
+    queue.tracks.push(...tracks);
+
+    if (shouldStartNow) {
       this.playNext(queue.guildId);
-      return `Запускаю: ${formatTrack(track)}`;
+
+      if (tracks.length === 1) {
+        return `Запускаю: ${formatTrack(firstTrack)}`;
+      }
+
+      return `Добавил ${tracks.length} треков из плейлиста. Запускаю: ${formatTrack(firstTrack)}`;
     }
 
-    return `Добавил в очередь: ${formatTrack(track)}. Позиция: ${queue.tracks.length}.`;
+    if (tracks.length === 1) {
+      return `Добавил в очередь: ${formatTrack(firstTrack)}. Позиция: ${startPosition}.`;
+    }
+
+    return `Добавил ${tracks.length} треков из плейлиста в очередь. Позиции: ${startPosition}-${startPosition + tracks.length - 1}.`;
   }
 
   async join(interaction, requestedChannel) {
@@ -354,17 +372,23 @@ function assertVoiceChannel(voiceChannel) {
   }
 }
 
-async function resolveTrack(query, requestedBy) {
+async function resolveTracks(query, requestedBy) {
   const trimmed = query.trim();
 
   if (!trimmed) {
     throw new UserFacingError('Передай ссылку на YouTube или поисковый запрос.');
   }
 
+  const playlistId = extractYouTubePlaylistId(trimmed);
+
+  if (playlistId) {
+    return createTracksFromPlaylistId(playlistId, requestedBy);
+  }
+
   const videoId = extractYouTubeVideoId(trimmed);
 
   if (videoId) {
-    return createTrackFromVideoId(videoId, requestedBy);
+    return [await createTrackFromVideoId(videoId, requestedBy)];
   }
 
   if (/^https?:\/\//i.test(trimmed)) {
@@ -375,10 +399,12 @@ async function resolveTrack(query, requestedBy) {
 
   for (const video of videos) {
     try {
-      return await createTrackFromVideoId(video.videoId, requestedBy, {
+      const track = await createTrackFromVideoId(video.videoId, requestedBy, {
         fallbackTitle: video.title,
         fallbackDurationSeconds: video.durationSeconds,
       });
+
+      return [track];
     } catch (error) {
       if (!(error instanceof UserFacingError)) {
         throw error;
@@ -441,6 +467,70 @@ async function createTrackFromVideoId(videoId, requestedBy, fallback = {}) {
     durationSeconds: details.durationSeconds,
     requestedBy: requestedBy.tag,
   };
+}
+
+async function createTracksFromPlaylistId(playlistId, requestedBy) {
+  const playlist = await getYtDlpPlaylistDetails(playlistId);
+  const tracks = playlist.entries
+    .map((entry) => createTrackFromPlaylistEntry(entry, requestedBy))
+    .filter(Boolean);
+
+  if (tracks.length === 0) {
+    throw new UserFacingError('В плейлисте не нашел доступных видео.');
+  }
+
+  return tracks;
+}
+
+function createTrackFromPlaylistEntry(entry, requestedBy) {
+  if (!entry) {
+    return null;
+  }
+
+  const videoId =
+    normalizeVideoId(entry.id) ??
+    normalizeVideoId(entry.url) ??
+    extractYouTubeVideoId(entry.url);
+
+  if (!videoId) {
+    return null;
+  }
+
+  return {
+    title: entry.title ?? 'YouTube video',
+    url: getYoutubeWatchUrl(videoId),
+    durationSeconds: Number(entry.duration) || null,
+    requestedBy: requestedBy.tag,
+  };
+}
+
+async function getYtDlpPlaylistDetails(playlistId) {
+  const url = getYoutubePlaylistUrl(playlistId);
+
+  try {
+    const info = await youtubedl(
+      url,
+      {
+        dumpSingleJson: true,
+        flatPlaylist: true,
+        ignoreErrors: true,
+        noWarnings: true,
+        socketTimeout: 30,
+        extractorRetries: 3,
+      },
+      {
+        timeout: YT_DLP_PLAYLIST_TIMEOUT_MS,
+        killSignal: 'SIGKILL',
+      },
+    );
+
+    return {
+      title: info.title ?? 'YouTube playlist',
+      entries: Array.isArray(info.entries) ? info.entries : [],
+    };
+  } catch (error) {
+    throw new UserFacingError(`Не могу прочитать YouTube-плейлист: ${formatYtDlpError(error)}.`);
+  }
 }
 
 async function getYtDlpVideoDetails(videoId, fallback = {}) {
@@ -615,12 +705,40 @@ function extractYouTubeVideoId(value) {
   return null;
 }
 
+function extractYouTubePlaylistId(value) {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, '');
+
+    if (
+      hostname === 'youtube.com' ||
+      hostname === 'm.youtube.com' ||
+      hostname === 'music.youtube.com' ||
+      hostname === 'youtu.be'
+    ) {
+      return normalizePlaylistId(url.searchParams.get('list'));
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 function normalizeVideoId(videoId) {
   return /^[a-zA-Z0-9_-]{11}$/.test(videoId ?? '') ? videoId : null;
 }
 
+function normalizePlaylistId(playlistId) {
+  return /^[a-zA-Z0-9_-]+$/.test(playlistId ?? '') ? playlistId : null;
+}
+
 function getYoutubeWatchUrl(videoId) {
   return `https://www.youtube.com/watch?v=${videoId}`;
+}
+
+function getYoutubePlaylistUrl(playlistId) {
+  return `https://www.youtube.com/playlist?list=${playlistId}`;
 }
 
 function getText(value) {
