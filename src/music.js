@@ -710,13 +710,30 @@ function extractYouTubePlaylistId(value) {
     const url = new URL(value);
     const hostname = url.hostname.toLowerCase().replace(/^www\./, '');
 
+    if (hostname === 'youtu.be') {
+      return null;
+    }
+
     if (
-      hostname === 'youtube.com' ||
-      hostname === 'm.youtube.com' ||
-      hostname === 'music.youtube.com' ||
-      hostname === 'youtu.be'
+      hostname !== 'youtube.com' &&
+      hostname !== 'm.youtube.com' &&
+      hostname !== 'music.youtube.com'
     ) {
-      return normalizePlaylistId(url.searchParams.get('list'));
+      return null;
+    }
+
+    const playlistId = normalizePlaylistId(url.searchParams.get('list'));
+
+    if (!playlistId) {
+      return null;
+    }
+
+    if (url.pathname.startsWith('/playlist')) {
+      return playlistId;
+    }
+
+    if (!url.searchParams.get('v') && !extractYouTubeVideoId(value)) {
+      return playlistId;
     }
   } catch {
     return null;

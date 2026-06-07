@@ -38,7 +38,7 @@ npm start
 
 ## Команды
 
-- `/play query:<ссылка или текст>` - добавить YouTube-видео или весь YouTube-плейлист в очередь и начать проигрывание.
+- `/play query:<ссылка или текст>` - добавить YouTube-видео или явную ссылку на YouTube-плейлист в очередь и начать проигрывание.
 - `/search query:<текст>` - показать 5 результатов YouTube и добавить выбранный результат кнопкой.
 - `/queue` - показать очередь.
 - `/nowplaying` - показать текущий трек.
@@ -65,7 +65,7 @@ npm start
 - View Channels
 - Send Messages
 - Read Message History
-- Embed Links
+- Attach Files
 - Connect
 - Speak
 
