@@ -10,6 +10,8 @@ import {
 import { MusicManager, UserFacingError } from './music.js';
 
 const token = process.env.DISCORD_TOKEN;
+const INSULT_GIF_URL = 'https://tenor.com/view/jojos-reference-menacing-swap-card-anime-gif-17506000';
+const INSULT_TRIGGER_PATTERN = /(^|[^\p{L}\p{N}_])пошел\s+нахуй($|[^\p{L}\p{N}_])/iu;
 
 if (!token) {
   console.error('DISCORD_TOKEN must be set in .env.');
@@ -17,7 +19,12 @@ if (!token) {
 }
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
 const music = new MusicManager(client);
@@ -46,6 +53,25 @@ client.on('interactionCreate', async (interaction) => {
   } catch (error) {
     await replyWithError(interaction, error);
   }
+});
+
+client.on('messageCreate', async (message) => {
+  if (!message.guild || message.author.bot) {
+    return;
+  }
+
+  if (!INSULT_TRIGGER_PATTERN.test(normalizeMessageText(message.content))) {
+    return;
+  }
+
+  await message.channel
+    .send({
+      content: `<@${message.author.id}> ${INSULT_GIF_URL}`,
+      allowedMentions: { users: [message.author.id] },
+    })
+    .catch((error) => {
+      console.error('Failed to send insult trigger gif:', error);
+    });
 });
 
 client.login(token);
@@ -233,6 +259,14 @@ function formatDuration(totalSeconds) {
   }
 
   return `${minutes}:${String(rest).padStart(2, '0')}`;
+}
+
+function normalizeMessageText(content) {
+  return String(content ?? '')
+    .toLowerCase()
+    .replaceAll('ё', 'е')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 async function replyWithError(interaction, error) {

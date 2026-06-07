@@ -64,7 +64,18 @@ npm start
 
 - View Channels
 - Send Messages
+- Read Message History
 - Connect
 - Speak
+
+Для реакции на сообщения в чате включи в Discord Developer Portal:
+
+- Bot
+- Privileged Gateway Intents
+- Message Content Intent
+
+Если при запуске появляется `Used disallowed intents`, значит `Message Content Intent` еще не включен у приложения в Developer Portal.
+
+Бот реагирует на фразу `пошел нахуй` / `пошёл нахуй`: отправляет Tenor GIF и пингует автора сообщения.
 
 Используй только контент, который можно воспроизводить в рамках правил YouTube, Discord и прав владельцев контента.
