@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node src/index.js",
     "deploy": "node src/register-commands.js",
-    "check": "node --check src/index.js && node --check src/music.js && node --check src/commands.js && node --check src/register-commands.js"
+    "check": "node --check src/index.js && node --check src/music.js && node --check src/commands.js && node --check src/register-commands.js && node --check src/insult-triggers.js"
   },
   "dependencies": {
     "@discordjs/voice": "^0.19.0",

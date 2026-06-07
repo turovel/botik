@@ -8,11 +8,11 @@ import {
   GatewayIntentBits,
   MessageFlags,
 } from 'discord.js';
+import { containsInsultTrigger } from './insult-triggers.js';
 import { MusicManager, UserFacingError } from './music.js';
 
 const token = process.env.DISCORD_TOKEN;
 const INSULT_GIF_URL = 'https://media.tenor.com/EyeGPrw4TS4AAAAC/jojos-reference.gif';
-const INSULT_TRIGGER_PATTERN = /(^|[^\p{L}\p{N}_])пошел\s+нахуй($|[^\p{L}\p{N}_])/iu;
 let insultGifBufferPromise;
 
 if (!token) {
@@ -62,7 +62,7 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  if (!INSULT_TRIGGER_PATTERN.test(normalizeMessageText(message.content))) {
+  if (!containsInsultTrigger(message.content)) {
     return;
   }
 
@@ -262,14 +262,6 @@ function formatDuration(totalSeconds) {
   }
 
   return `${minutes}:${String(rest).padStart(2, '0')}`;
-}
-
-function normalizeMessageText(content) {
-  return String(content ?? '')
-    .toLowerCase()
-    .replaceAll('ё', 'е')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 async function getInsultGifAttachment() {
