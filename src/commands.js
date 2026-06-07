@@ -12,6 +12,16 @@ export const commands = [
     ),
 
   new SlashCommandBuilder()
+    .setName('search')
+    .setDescription('Search YouTube and pick a result to queue.')
+    .addStringOption((option) =>
+      option
+        .setName('query')
+        .setDescription('YouTube search text.')
+        .setRequired(true),
+    ),
+
+  new SlashCommandBuilder()
     .setName('queue')
     .setDescription('Show the current music queue.'),
 

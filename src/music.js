@@ -37,14 +37,23 @@ export class MusicManager {
 
   async enqueue(interaction, query) {
     const voiceChannel = await this.getTargetVoiceChannel(interaction);
-
-    if (!voiceChannel) {
-      throw new UserFacingError(
-        'Зайди в войс-канал или укажи DEFAULT_VOICE_CHANNEL_ID в .env.',
-      );
-    }
-
+    assertVoiceChannel(voiceChannel);
     const track = await resolveTrack(query, interaction.user);
+    return this.enqueueTrack(interaction, track, voiceChannel);
+  }
+
+  async enqueueVideoId(interaction, videoId, fallback = {}) {
+    const voiceChannel = await this.getTargetVoiceChannel(interaction);
+    assertVoiceChannel(voiceChannel);
+    const track = await createTrackFromVideoId(videoId, interaction.user, fallback);
+    return this.enqueueTrack(interaction, track, voiceChannel);
+  }
+
+  async search(query, limit = MAX_QUEUE_DISPLAY) {
+    return searchYoutubeVideos(query, limit);
+  }
+
+  async enqueueTrack(interaction, track, voiceChannel) {
     const queue = this.getOrCreateQueue(interaction.guild, interaction.channel);
 
     await this.connect(queue, voiceChannel);
@@ -337,6 +346,14 @@ export class UserFacingError extends Error {
   }
 }
 
+function assertVoiceChannel(voiceChannel) {
+  if (!voiceChannel) {
+    throw new UserFacingError(
+      'Зайди в войс-канал или укажи DEFAULT_VOICE_CHANNEL_ID в .env.',
+    );
+  }
+}
+
 async function resolveTrack(query, requestedBy) {
   const trimmed = query.trim();
 
@@ -354,19 +371,13 @@ async function resolveTrack(query, requestedBy) {
     throw new UserFacingError('Сейчас поддерживаются только ссылки на YouTube.');
   }
 
-  const youtube = await getYoutubeClient();
-  const search = await youtube.search(trimmed, { type: 'video' });
-  const videos = search.videos?.slice(0, SEARCH_CANDIDATES_TO_VALIDATE) ?? [];
-
-  if (videos.length === 0) {
-    throw new UserFacingError('Ничего не нашел на YouTube по этому запросу.');
-  }
+  const videos = await searchYoutubeVideos(trimmed, SEARCH_CANDIDATES_TO_VALIDATE);
 
   for (const video of videos) {
     try {
-      return await createTrackFromVideoId(video.id, requestedBy, {
-        fallbackTitle: getText(video.title),
-        fallbackDurationSeconds: video.duration?.seconds || null,
+      return await createTrackFromVideoId(video.videoId, requestedBy, {
+        fallbackTitle: video.title,
+        fallbackDurationSeconds: video.durationSeconds,
       });
     } catch (error) {
       if (!(error instanceof UserFacingError)) {
@@ -381,6 +392,44 @@ async function resolveTrack(query, requestedBy) {
 function getYoutubeClient() {
   youtubeClientPromise ??= Innertube.create();
   return youtubeClientPromise;
+}
+
+async function searchYoutubeVideos(query, limit) {
+  const trimmed = query.trim();
+
+  if (!trimmed) {
+    throw new UserFacingError('Передай поисковый запрос.');
+  }
+
+  const youtube = await getYoutubeClient();
+  const search = await youtube.search(trimmed, { type: 'video' });
+  const videos = search.videos ?? [];
+  const results = [];
+
+  for (const video of videos) {
+    const videoId = normalizeVideoId(video.id);
+
+    if (!videoId) {
+      continue;
+    }
+
+    results.push({
+      videoId,
+      title: getText(video.title) ?? 'YouTube video',
+      url: getYoutubeWatchUrl(videoId),
+      durationSeconds: video.duration?.seconds || null,
+    });
+
+    if (results.length >= limit) {
+      break;
+    }
+  }
+
+  if (results.length === 0) {
+    throw new UserFacingError('Ничего не нашел на YouTube по этому запросу.');
+  }
+
+  return results;
 }
 
 async function createTrackFromVideoId(videoId, requestedBy, fallback = {}) {
