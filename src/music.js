@@ -25,6 +25,8 @@ if (!ffmpegPath) {
 
 const IDLE_LEAVE_MS = 120_000;
 const MAX_QUEUE_DISPLAY = 10;
+const SEARCH_CANDIDATES_TO_VALIDATE = 5;
+const YT_DLP_METADATA_TIMEOUT_MS = 45_000;
 let youtubeClientPromise;
 
 export class MusicManager {
@@ -345,14 +347,7 @@ async function resolveTrack(query, requestedBy) {
   const videoId = extractYouTubeVideoId(trimmed);
 
   if (videoId) {
-    const details = await getYoutubeVideoDetails(videoId);
-
-    return {
-      title: details.title,
-      url: getYoutubeWatchUrl(videoId),
-      durationSeconds: details.durationSeconds,
-      requestedBy: requestedBy.tag,
-    };
+    return createTrackFromVideoId(videoId, requestedBy);
   }
 
   if (/^https?:\/\//i.test(trimmed)) {
@@ -361,18 +356,26 @@ async function resolveTrack(query, requestedBy) {
 
   const youtube = await getYoutubeClient();
   const search = await youtube.search(trimmed, { type: 'video' });
-  const video = search.videos?.[0];
+  const videos = search.videos?.slice(0, SEARCH_CANDIDATES_TO_VALIDATE) ?? [];
 
-  if (!video) {
+  if (videos.length === 0) {
     throw new UserFacingError('Ничего не нашел на YouTube по этому запросу.');
   }
 
-  return {
-    title: getText(video.title) ?? 'YouTube video',
-    url: getYoutubeWatchUrl(video.id),
-    durationSeconds: video.duration?.seconds || null,
-    requestedBy: requestedBy.tag,
-  };
+  for (const video of videos) {
+    try {
+      return await createTrackFromVideoId(video.id, requestedBy, {
+        fallbackTitle: getText(video.title),
+        fallbackDurationSeconds: video.duration?.seconds || null,
+      });
+    } catch (error) {
+      if (!(error instanceof UserFacingError)) {
+        throw error;
+      }
+    }
+  }
+
+  throw new UserFacingError('Нашел видео на YouTube, но ни одно из первых результатов не доступно для проигрывания.');
 }
 
 function getYoutubeClient() {
@@ -380,14 +383,43 @@ function getYoutubeClient() {
   return youtubeClientPromise;
 }
 
-async function getYoutubeVideoDetails(videoId) {
-  const youtube = await getYoutubeClient();
-  const info = await youtube.getBasicInfo(videoId);
+async function createTrackFromVideoId(videoId, requestedBy, fallback = {}) {
+  const details = await getYtDlpVideoDetails(videoId, fallback);
 
   return {
-    title: info.basic_info?.title ?? 'YouTube video',
-    durationSeconds: info.basic_info?.duration || null,
+    title: details.title,
+    url: getYoutubeWatchUrl(videoId),
+    durationSeconds: details.durationSeconds,
+    requestedBy: requestedBy.tag,
   };
+}
+
+async function getYtDlpVideoDetails(videoId, fallback = {}) {
+  const url = getYoutubeWatchUrl(videoId);
+
+  try {
+    const info = await youtubedl(
+      url,
+      {
+        dumpSingleJson: true,
+        noWarnings: true,
+        noPlaylist: true,
+        socketTimeout: 30,
+        extractorRetries: 3,
+      },
+      {
+        timeout: YT_DLP_METADATA_TIMEOUT_MS,
+        killSignal: 'SIGKILL',
+      },
+    );
+
+    return {
+      title: info.title ?? fallback.fallbackTitle ?? 'YouTube video',
+      durationSeconds: Number(info.duration) || fallback.fallbackDurationSeconds || null,
+    };
+  } catch (error) {
+    throw new UserFacingError(`Не могу проиграть это YouTube-видео: ${formatYtDlpError(error)}.`);
+  }
 }
 
 function createYoutubeResource(track) {
@@ -548,6 +580,25 @@ function getText(value) {
   }
 
   return value?.text ?? null;
+}
+
+function formatYtDlpError(error) {
+  const raw = [error?.stderr, error?.message].filter(Boolean).join('\n');
+  const lines = raw
+    .replaceAll('\r', '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const usefulLine =
+    lines.find((line) => line.startsWith('ERROR:')) ??
+    lines.find((line) => !line.startsWith('The command spawned as:'));
+
+  return (
+    usefulLine
+      ?.replace(/^ERROR:\s*/, '')
+      .replace(/\s+/g, ' ')
+      .slice(0, 300) || 'видео недоступно или YouTube не отдает аудио'
+  );
 }
 
 function isVoiceChannel(channel) {
