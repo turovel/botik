@@ -39,7 +39,14 @@ export class MusicManager {
   async enqueue(interaction, query) {
     const voiceChannel = await this.getTargetVoiceChannel(interaction);
     assertVoiceChannel(voiceChannel);
-    const tracks = await resolveTracks(query, interaction.user);
+    const track = await resolveTrack(query, interaction.user);
+    return this.enqueueTracks(interaction, [track], voiceChannel);
+  }
+
+  async enqueuePlaylist(interaction, query) {
+    const voiceChannel = await this.getTargetVoiceChannel(interaction);
+    assertVoiceChannel(voiceChannel);
+    const tracks = await resolvePlaylistTracks(query, interaction.user);
     return this.enqueueTracks(interaction, tracks, voiceChannel);
   }
 
@@ -372,27 +379,27 @@ function assertVoiceChannel(voiceChannel) {
   }
 }
 
-async function resolveTracks(query, requestedBy) {
+async function resolveTrack(query, requestedBy) {
   const trimmed = query.trim();
 
   if (!trimmed) {
     throw new UserFacingError('Передай ссылку на YouTube или поисковый запрос.');
   }
 
-  const playlistId = extractYouTubePlaylistId(trimmed);
-
-  if (playlistId) {
-    return createTracksFromPlaylistId(playlistId, requestedBy);
-  }
-
   const videoId = extractYouTubeVideoId(trimmed);
 
   if (videoId) {
-    return [await createTrackFromVideoId(videoId, requestedBy)];
+    return createTrackFromVideoId(videoId, requestedBy);
   }
 
   if (/^https?:\/\//i.test(trimmed)) {
-    throw new UserFacingError('Сейчас поддерживаются только ссылки на YouTube.');
+    const playlistId = extractYouTubePlaylistId(trimmed);
+
+    if (playlistId) {
+      throw new UserFacingError('Это ссылка на плейлист. Используй /playlist, чтобы добавить весь плейлист.');
+    }
+
+    throw new UserFacingError('Сейчас поддерживаются только ссылки на YouTube-видео или /playlist для плейлистов.');
   }
 
   const videos = await searchYoutubeVideos(trimmed, SEARCH_CANDIDATES_TO_VALIDATE);
@@ -404,7 +411,7 @@ async function resolveTracks(query, requestedBy) {
         fallbackDurationSeconds: video.durationSeconds,
       });
 
-      return [track];
+      return track;
     } catch (error) {
       if (!(error instanceof UserFacingError)) {
         throw error;
@@ -413,6 +420,22 @@ async function resolveTracks(query, requestedBy) {
   }
 
   throw new UserFacingError('Нашел видео на YouTube, но ни одно из первых результатов не доступно для проигрывания.');
+}
+
+async function resolvePlaylistTracks(query, requestedBy) {
+  const trimmed = query.trim();
+
+  if (!trimmed) {
+    throw new UserFacingError('Передай ссылку на YouTube-плейлист.');
+  }
+
+  const playlistId = extractYouTubePlaylistId(trimmed);
+
+  if (!playlistId) {
+    throw new UserFacingError('Не вижу list=... в ссылке. Передай ссылку на YouTube-плейлист.');
+  }
+
+  return createTracksFromPlaylistId(playlistId, requestedBy);
 }
 
 function getYoutubeClient() {
@@ -710,36 +733,19 @@ function extractYouTubePlaylistId(value) {
     const url = new URL(value);
     const hostname = url.hostname.toLowerCase().replace(/^www\./, '');
 
-    if (hostname === 'youtu.be') {
-      return null;
-    }
-
     if (
       hostname !== 'youtube.com' &&
       hostname !== 'm.youtube.com' &&
-      hostname !== 'music.youtube.com'
+      hostname !== 'music.youtube.com' &&
+      hostname !== 'youtu.be'
     ) {
       return null;
     }
 
-    const playlistId = normalizePlaylistId(url.searchParams.get('list'));
-
-    if (!playlistId) {
-      return null;
-    }
-
-    if (url.pathname.startsWith('/playlist')) {
-      return playlistId;
-    }
-
-    if (!url.searchParams.get('v') && !extractYouTubeVideoId(value)) {
-      return playlistId;
-    }
+    return normalizePlaylistId(url.searchParams.get('list'));
   } catch {
     return null;
   }
-
-  return null;
 }
 
 function normalizeVideoId(videoId) {

@@ -103,6 +103,14 @@ async function handleCommand(interaction) {
       break;
     }
 
+    case 'playlist': {
+      await interaction.deferReply();
+      const url = interaction.options.getString('url', true);
+      const message = await music.enqueuePlaylist(interaction, url);
+      await interaction.editReply({ content: message, allowedMentions: { parse: [] } });
+      break;
+    }
+
     case 'join': {
       await interaction.deferReply();
       const channel = interaction.options.getChannel('channel');

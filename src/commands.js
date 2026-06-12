@@ -22,6 +22,16 @@ export const commands = [
     ),
 
   new SlashCommandBuilder()
+    .setName('playlist')
+    .setDescription('Add every video from a YouTube playlist to the queue.')
+    .addStringOption((option) =>
+      option
+        .setName('url')
+        .setDescription('YouTube playlist link, or a YouTube link that contains list=...')
+        .setRequired(true),
+    ),
+
+  new SlashCommandBuilder()
     .setName('queue')
     .setDescription('Show the current music queue.'),
 
